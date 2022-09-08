@@ -3,15 +3,16 @@
 """
 
 import sys
-sys.path.insert(0, '../../Utilities/')
+#sys.path.insert(0, '../../Utilities/')
 
+import os
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.io
 from scipy.interpolate import griddata
 from pyDOE import lhs
-from plotting import newfig, savefig
+#from plotting import newfig, savefig
 from mpl_toolkits.mplot3d import Axes3D
 import time
 import matplotlib.gridspec as gridspec
@@ -41,6 +42,25 @@ def loss2(values):
     return loss_value
 
 
+# Used to print loss values
+def print_losses(losses, ic_losses, bc_losses, pde_losses):
+    plt.ioff()
+    fig, ax = plt.subplots()       
+    ax.plot(losses, label='Total Loss')
+    ax.plot(ic_losses, label='IC Loss')
+    ax.plot(bc_losses, label='bc_losses')
+    ax.plot(pde_losses, label='pde_losses')
+    ax.set_ylim(0,0.20)
+    ax.set_title('Schroedinger Example Results')    
+    ax.legend(loc='upper right', prop={'size' :6})
+    ax.grid(linestyle='-', linewidth='0.5')        
+    fig.savefig(os.path.join('figures', 'loss_results.png'))
+    plt.clf()
+
+    return
+
+
+
 class PhysicsInformedNN:
     # Initialize the class
     def __init__(self, x0, u0, v0, tb, X_f, layers, lb, ub):
@@ -54,6 +74,7 @@ class PhysicsInformedNN:
                
         self.x0 = X0[:,0:1]
         self.t0 = X0[:,1:2]
+        
 
         self.x_lb = X_lb[:,0:1]
         self.t_lb = X_lb[:,1:2]
@@ -66,28 +87,30 @@ class PhysicsInformedNN:
         
         self.u0 = u0
         self.v0 = v0
+       
         
         # Initialize NNs
         self.layers = layers
         self.weights, self.biases = self.initialize_NN(layers)
-        
+                
         # tf Placeholders  
         self.x0_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.x0.shape[1]])      
         self.t0_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.t0.shape[1]])
         #self.x0_tf = tf.placeholder(tf.float32, shape=[None, self.x0.shape[1]])      
         #self.t0_tf = tf.placeholder(tf.float32, shape=[None, self.t0.shape[1]])
         
-        
         self.u0_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.u0.shape[1]])
         self.v0_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.v0.shape[1]])
         #self.u0_tf = tf.placeholder(tf.float32, shape=[None, self.u0.shape[1]])
         #self.v0_tf = tf.placeholder(tf.float32, shape=[None, self.v0.shape[1]])
+        
         
         self.x_lb_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.x_lb.shape[1]])
         self.t_lb_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.t_lb.shape[1]])
         #self.x_lb_tf = tf.placeholder(tf.float32, shape=[None, self.x_lb.shape[1]])
         #self.t_lb_tf = tf.placeholder(tf.float32, shape=[None, self.t_lb.shape[1]])
         
+       
         self.x_ub_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.x_ub.shape[1]])
         self.t_ub_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.t_ub.shape[1]])
         #self.x_ub_tf = tf.placeholder(tf.float32, shape=[None, self.x_ub.shape[1]])
@@ -98,13 +121,13 @@ class PhysicsInformedNN:
         self.t_f_tf = tf.compat.v1.placeholder(tf.float32, shape=[None, self.t_f.shape[1]])
         #self.x_f_tf = tf.placeholder(tf.float32, shape=[None, self.x_f.shape[1]])
         #self.t_f_tf = tf.placeholder(tf.float32, shape=[None, self.t_f.shape[1]])
-
+        
         # tf Graphs
         self.u0_pred, self.v0_pred, _ , _ = self.net_uv(self.x0_tf, self.t0_tf)
         self.u_lb_pred, self.v_lb_pred, self.u_x_lb_pred, self.v_x_lb_pred = self.net_uv(self.x_lb_tf, self.t_lb_tf)
         self.u_ub_pred, self.v_ub_pred, self.u_x_ub_pred, self.v_x_ub_pred = self.net_uv(self.x_ub_tf, self.t_ub_tf)
         self.f_u_pred, self.f_v_pred = self.net_f_uv(self.x_f_tf, self.t_f_tf)
-        
+                
         # Loss
         self.loss = tf.reduce_mean(tf.square(self.u0_tf - self.u0_pred)) + \
                     tf.reduce_mean(tf.square(self.v0_tf - self.v0_pred)) + \
@@ -114,6 +137,17 @@ class PhysicsInformedNN:
                     tf.reduce_mean(tf.square(self.v_x_lb_pred - self.v_x_ub_pred)) + \
                     tf.reduce_mean(tf.square(self.f_u_pred)) + \
                     tf.reduce_mean(tf.square(self.f_v_pred))
+       
+        # Custom Losses to see what is happening on IC, BC, and Interior Points
+        self.loss_ic = tf.reduce_mean(tf.square(self.u0_tf - self.u0_pred)) + \
+                       tf.reduce_mean(tf.square(self.v0_tf - self.v0_pred))
+        self.loss_bc =  tf.reduce_mean(tf.square(self.u_lb_pred - self.u_ub_pred)) + \
+                        tf.reduce_mean(tf.square(self.v_lb_pred - self.v_ub_pred)) + \
+                        tf.reduce_mean(tf.square(self.u_x_lb_pred - self.u_x_ub_pred)) + \
+                        tf.reduce_mean(tf.square(self.v_x_lb_pred - self.v_x_ub_pred))
+        self.loss_pde =  tf.reduce_mean(tf.square(self.f_u_pred)) + \
+                         tf.reduce_mean(tf.square(self.f_v_pred))              
+       
         
         # Optimizers
         # self.optimizer = sopt.minimize(fun=loss2,
@@ -196,7 +230,6 @@ class PhysicsInformedNN:
     
     def net_uv(self, x, t):
         X = tf.concat([x,t],1)
-        
         uv = self.neural_net(X, self.weights, self.biases)
         u = uv[:,0:1]
         v = uv[:,1:2]
@@ -225,15 +258,32 @@ class PhysicsInformedNN:
         
     def train(self, nIter):
         
+        losses, ic_losses, bc_losses, pde_losses = [], [], [], []
+        
+        
         tf_dict = {self.x0_tf: self.x0, self.t0_tf: self.t0,
                    self.u0_tf: self.u0, self.v0_tf: self.v0,
                    self.x_lb_tf: self.x_lb, self.t_lb_tf: self.t_lb,
                    self.x_ub_tf: self.x_ub, self.t_ub_tf: self.t_ub,
                    self.x_f_tf: self.x_f, self.t_f_tf: self.t_f}
-        
         start_time = time.time()
-        for it in range(nIter):
+        for it in range(nIter):           
             self.sess.run(self.train_op_Adam, tf_dict)
+            
+            # Compute custom losses to see what is going on
+            loss = self.sess.run(self.loss, tf_dict)
+            ic_loss = self.sess.run(self.loss_ic, tf_dict)
+            bc_loss = self.sess.run(self.loss_bc, tf_dict)
+            pde_loss = self.sess.run(self.loss_pde, tf_dict)
+            
+            losses.append(loss)
+            ic_losses.append(ic_loss)
+            bc_losses.append(bc_loss)
+            pde_losses.append(pde_loss)
+            print_losses(losses, ic_losses, bc_losses, pde_losses)
+            
+            
+            
             
             # Print
             if it % 10 == 0:
@@ -279,15 +329,18 @@ if __name__ == "__main__":
         
     data = scipy.io.loadmat('../Data/NLS.mat')
     
+    # t has shape (201, 1)
+    # x has shape (256, 1)
+    # Exact has shape (256, 201)
     t = data['tt'].flatten()[:,None]
     x = data['x'].flatten()[:,None]
-    Exact = data['uu']
+    Exact = data['uu']   
     Exact_u = np.real(Exact)
     Exact_v = np.imag(Exact)
     Exact_h = np.sqrt(Exact_u**2 + Exact_v**2)
-    
+       
     X, T = np.meshgrid(x,t)
-    
+        
     X_star = np.hstack((X.flatten()[:,None], T.flatten()[:,None]))
     u_star = Exact_u.T.flatten()[:,None]
     v_star = Exact_v.T.flatten()[:,None]
@@ -295,16 +348,20 @@ if __name__ == "__main__":
     
     ###########################
     
-    idx_x = np.random.choice(x.shape[0], N0, replace=False)
+    
+    # x0 - 50 initial condition points
+    idx_x = np.random.choice(x.shape[0], N0, replace=False)        
     x0 = x[idx_x,:]
     u0 = Exact_u[idx_x,0:1]
     v0 = Exact_v[idx_x,0:1]
     
+    # tb - 50 time points
     idx_t = np.random.choice(t.shape[0], N_b, replace=False)
-    tb = t[idx_t,:]
+    tb = t[idx_t,:] 
     
+    # X_f - 20000 sample interior points
     X_f = lb + (ub-lb)*lhs(2, N_f)
-            
+    
     model = PhysicsInformedNN(x0, u0, v0, tb, X_f, layers, lb, ub)
              
     start_time = time.time()                
