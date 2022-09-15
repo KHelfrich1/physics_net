@@ -7,6 +7,8 @@ import argparse
 import os
 import numpy as np
 
+from utils import initial_data
+
 # import sys
 # #sys.path.insert(0, '../../Utilities/')
 
@@ -66,7 +68,8 @@ import numpy as np
 
 # Main cod component
 def main(settings):
-    print(settings.hidden_sizes, type(settings.hidden_sizes))
+    x0, u0 = initial_data(settings)
+
 
 # class PhysicsInformedNN:
 #     # Initialize the class
@@ -339,8 +342,13 @@ if __name__ == "__main__":
     parser.add_argument('--optimizer', type=str, default='adam', help='String of optimizer type consisting of [sgd, adam, rmsprop]')
     parser.add_argument('--lr', type=float, default=1e-3, help='Float of the learning rate.')
     
-    
-    
+    # Loading initial conditions
+    parser.add_argument('--xL', type=float, default=0, help='Float of the left endpoint of the boundary.')
+    parser.add_argument('--xR', type=float, default=1.0, help='Float of the right endpoint of the boundary.')
+    parser.add_argument('--N0', type=int, default=50, help='Integer of the number of datapoints to use for the initial conditions.')
+    parser.add_argument('--initial_condition_func', type=str, default='sin', help='String of the initial periodic function consisting of [sin, cos]')
+    parser.add_argument('--initial_condition_scaling', type=float, default=1.0, help='Float of the scaling to apply to the periodic intital condition function.')
+
     args = parser.parse_args()
     
     main(args)
