@@ -71,7 +71,7 @@ class Net(nn.Module):
 def main(settings):
     
     # Gather training data
-    U0, Ub, Ui  = training_data(settings)
+    U0x, Ubp, Ubu, Ubux, Ui  = training_data(settings)
 
     # Initialize neural network
     model = Net(settings)
@@ -84,7 +84,7 @@ def main(settings):
     opt = opt_dict[settings.optimizer]
 
     # Train Neural Net
-    train_network(model, U0, Ub, Ui, opt, settings.epochs)
+    model = train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, settings.epochs)
 
 
 # class PhysicsInformedNN:
@@ -367,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument('--Nb', type=int, default=50, help='Integer of the number of datapoints to use for the boundary conditions.')
     parser.add_argument('--Ni', type=int, default=20000, help='Integer of the number of datapoints to use for the interior points.')
     parser.add_argument('--initial_condition_func', type=str, default='sin', help='String of the initial periodic function consisting of [sin, cos]')
-    parser.add_argument('--initial_condition_scaling', type=float, default=1.0, help='Float of the scaling to apply to the periodic intital condition function.')
+    parser.add_argument('--boundary_scaling', type=float, default=1.0, help='Float of the scaling to apply to the periodic boundary condition function.')
 
     args = parser.parse_args()
     
