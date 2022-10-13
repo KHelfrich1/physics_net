@@ -6,7 +6,9 @@ Created on Thu Sep  8 15:31:54 2022
 """
 
 import torch
+import os
 import numpy as np
+import matplotlib.pyplot as plt
 
 # Assigning device
 if torch.cuda.is_available():
@@ -26,7 +28,7 @@ def training_data(settings):
         N0 - Number of initial condition data points to use for training
         Nb - Number of boundary data points to use for training
         Ni - Number of interior data points to use for training
-        initial_condition_func - String of which periodic funciton to use
+        initial_condition_func - String of which periodic function to use
         boundary_scaling - Float of the scaling to apply to the periodic initial condition
         
     Returns
@@ -88,7 +90,7 @@ def training_data(settings):
     
     Ui = np.concatenate([xi, ti], axis=-1) 
        
-    return U0x, Ubp, Ubu, Ubux, Ui
+    return U0x, Ubp, Ubu, Ubux, Ui, periodic_func
 
 ###############################################################################
 
@@ -115,7 +117,7 @@ def losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pd
     mse - Total mean square error.    
     '''
 
-    # Initial condition loss    
+    # Initial condition loss       
     mse0 = torch.mean(torch.square(u0_hat))
     
     # Boundary condition loss
@@ -141,13 +143,13 @@ def losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pd
     uxxx_hat = uxxx_hat[0][:,0]    
     msep = torch.mean(torch.square(ut_hat + ux_hat + pdeu_hat[:,0]*ux_hat + uxxx_hat))
 
-    mse = mse0 + mseb + msep    
+    mse = mse0 + 2*mseb + msep    
     
     return mse0, mseb, msep, mse
     
 ###############################################################################
 
-def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs):
+def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, periodic_func=None):
     '''
     Parameters
     ----------
@@ -159,6 +161,7 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs):
     Ui : Interior point conditions
     opt : Optimizer
     epochs : Integer of the number of epochs the model can be run 
+    settings : Optional class object containing various flags
         
     Returns
     -------
@@ -216,17 +219,94 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs):
         msep_list.append(msep.cpu().detach().item())
         mse_list.append(mse.cpu().detach().item())
 
+        
+        if epoch % int(epochs*0.1) == 0:
+            print('Epoch: {:d} MSE: {:.2e} MSE0: {:.2e} MSEb: {:.2e} MSEp: {:.2e}'.format(epoch, mse_list[-1], mse0_list[-1], mseb_list[-1], msep_list[-1]))
+            print_losses(mse_list, mse0_list, mseb_list, msep_list)
+            test_p(model, settings, periodic_func)
+
         # Update model parameters
         if epoch < epochs:
             opt.zero_grad()
             mse.backward()
             opt.step()
-        
-        print(mse)    
-        
+                
         # Update counter
         epoch += 1    
 
-
-
     return model
+
+
+###############################################################################
+
+def print_losses(mse, mse0, mseb, msep):
+    '''
+    Parameters
+    ----------
+    mse : List of MSE loss values
+    mse0 : List of Initial Condition MSE values or MSE0
+    mseb : List of Boundary Conditions MSE values or MSEb
+    msep : List of Periodic Boundary Conditions MSE values or MSEp
+
+    Returns
+    -------
+    Plot of losses
+    '''
+    
+    fig, ax = plt.subplots()
+    ax.plot(mse, label="MSE")
+    ax.plot(mse0, label="MSE0")
+    ax.plot(mseb, label="MSEb")
+    ax.plot(msep, label="MSEp")
+    ax.legend(loc='upper right')
+    ax.set_yscale('log')
+    fig.savefig(os.path.join('experiments', 'losses.png'))
+    plt.close()
+    
+    
+###############################################################################
+
+def test_p(model, settings, periodic_func):
+    '''
+    Parameters
+    ----------
+    model : Pytorch neural network object
+    settings : Class object containing various settings
+    periodic_func : Periodic function used for boundary conditions.
+
+    Returns
+    -------
+    Plot of periodic results    
+    
+    '''  
+    
+    # Create time array
+    dt = settings.T/(settings.Nb)
+    t_values = np.arange(0, settings.T+dt, dt)
+    
+    # Compute periodic conditions
+    ub = periodic_func(t_values)
+    
+    # Compute predicted results
+    t_test = torch.from_numpy(np.reshape(t_values, (-1,1))).float().to(device)
+    BC_test = torch.cat([0.5*torch.ones_like(t_test), t_test], axis=-1)
+    BC_test2 = torch.cat([torch.zeros_like(t_test), t_test], axis=-1)
+    
+    with torch.inference_mode():
+        utest1 = model(BC_test)
+        utest2 = model(BC_test2)
+        utest1 = utest1.cpu().detach().numpy().reshape((-1,))
+        utest2 = utest2.cpu().detach().numpy().reshape((-1,))
+        
+        
+    fig, ax = plt.subplots()
+    ax.plot(t_values, ub, label='Boundary Condition')
+    ax.plot(t_values, utest1, label='Predicted Condition at X = 0.50')
+    ax.plot(t_values, utest2, label='Predicted Condition at X = 0')
+    ax.legend(loc='upper right')
+    fig.savefig(os.path.join('experiments', 'periodic.png'))
+    plt.close()
+    
+
+
+    return
