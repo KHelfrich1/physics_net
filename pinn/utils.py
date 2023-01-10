@@ -15,7 +15,6 @@ if torch.cuda.is_available():
     device = torch.device('cuda')
 else:
     device = torch.device('cpu')
-print('Device: {}'.format(device))
 
 def training_data(settings):
     '''
@@ -50,8 +49,9 @@ def training_data(settings):
     init_func = {'sin' : np.sin,
                  'cos' : np.cos}
     base_func = init_func[settings.initial_condition_func]
+
     periodic_func = lambda x : settings.boundary_scaling*base_func(x)
-    
+        
     # Create random initial conditions 
     dx = (settings.xR - settings.xL)/(10*settings.N0)
     x_values = np.arange(settings.xL, settings.xR+dx, dx)
@@ -73,9 +73,10 @@ def training_data(settings):
     
     Ubu = np.reshape(tR[0], (-1,1))
     Ubux = np.reshape(tR[-1], (-1,1))
-    
+        
     ub = periodic_func(tL)
-    Ubp = np.concatenate([tL, ub], axis=-1)
+    Ubp = np.concatenate([ub, tL], axis=-1)
+    
         
     # Gather interior points
     dx = (settings.xR - settings.xL)/(10*settings.Ni)
@@ -89,7 +90,7 @@ def training_data(settings):
     ti = np.reshape(t_values[t_rand], (-1,1))
     
     Ui = np.concatenate([xi, ti], axis=-1) 
-       
+         
     return U0x, Ubp, Ubu, Ubux, Ui, periodic_func
 
 ###############################################################################
@@ -127,7 +128,7 @@ def losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pd
     msebu = torch.mean(torch.square(ubu_hat))
     
     
-    dubx_hat = torch.autograd.grad(ubux_hat, BCux_pts, grad_outputs=torch.ones_like(ubux_hat))
+    dubx_hat = torch.autograd.grad(ubux_hat, BCux_pts, grad_outputs=torch.ones_like(ubux_hat))    
     dubx_hat = dubx_hat[0][:,0]
     msebux = torch.mean(torch.square(dubx_hat))  
     
@@ -143,7 +144,7 @@ def losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pd
     uxxx_hat = uxxx_hat[0][:,0]    
     msep = torch.mean(torch.square(ut_hat + ux_hat + pdeu_hat[:,0]*ux_hat + uxxx_hat))
 
-    mse = mse0 + 2*mseb + msep    
+    mse = mse0 + mseb + msep    
     
     return mse0, mseb, msep, mse
     
@@ -174,34 +175,34 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
     
     # Process initial conditions
     x0 = torch.from_numpy(U0x).float().to(device)    
+
     IC_pts = torch.cat([x0, torch.zeros_like(x0)], axis=-1)
-    
+        
     # Process boundary conditions
-    tbp = torch.from_numpy(np.reshape(Ubp[:,0], (-1,1))).float().to(device)
-    ubp = torch.from_numpy(np.reshape(Ubp[:,-1], (-1,1))).float().to(device)
+    ubp = torch.from_numpy(np.reshape(Ubp[:,0], (-1,1))).float().to(device)    
+    tbp = torch.from_numpy(np.reshape(Ubp[:,-1], (-1,1))).float().to(device)
     BCp_pts = torch.cat([torch.zeros_like(tbp),tbp], axis=-1)
     
     tbu = torch.from_numpy(Ubu).float().to(device)
-    BCu_pts = torch.cat([torch.ones_like(tbu), tbu], axis=-1)
-    
+    BCu_pts = torch.cat([settings.xR*torch.ones_like(tbu), tbu], axis=-1)
+        
     tbux = torch.from_numpy(Ubux).float().to(device)
-    BCux_pts = torch.cat([torch.ones_like(tbux), tbux], axis=-1)
+    BCux_pts = torch.cat([settings.xR*torch.ones_like(tbux), tbux], axis=-1)
     BCux_pts.requires_grad = True
 
     # Process interior points
     PDE_pts = torch.from_numpy(Ui).float().to(device)
     PDE_pts.requires_grad = True
-   
+    
     # Lists to store losses
     mse0_list, mseb_list, msep_list, mse_list = [], [], [], []
-
-   
+      
     # Start of training loop
     epoch = 0
     while epoch <= epochs:    
         # IC Predictions
         u0_hat = model(IC_pts)
-
+        
         # BC Predictions
         ubp_hat = model(BCp_pts) 
         ubu_hat = model(BCu_pts)
@@ -214,16 +215,15 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
         mse0, mseb, msep, mse = losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pdeu_hat)
         
         mse0_list.append(mse0.cpu().detach().item())
-        mseb_list.append(mseb.cpu().detach().item())
-        
+        mseb_list.append(mseb.cpu().detach().item())        
         msep_list.append(msep.cpu().detach().item())
         mse_list.append(mse.cpu().detach().item())
 
         
         if epoch % int(epochs*0.1) == 0:
             print('Epoch: {:d} MSE: {:.2e} MSE0: {:.2e} MSEb: {:.2e} MSEp: {:.2e}'.format(epoch, mse_list[-1], mse0_list[-1], mseb_list[-1], msep_list[-1]))
-            print_losses(mse_list, mse0_list, mseb_list, msep_list)
-            test_p(model, settings, periodic_func)
+            print_losses(mse_list, mse0_list, mseb_list, msep_list, epoch, settings.T)
+            test_p(model, settings, periodic_func, epoch)
 
         # Update model parameters
         if epoch < epochs:
@@ -239,7 +239,7 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
 
 ###############################################################################
 
-def print_losses(mse, mse0, mseb, msep):
+def print_losses(mse, mse0, mseb, msep, epoch, T):
     '''
     Parameters
     ----------
@@ -247,32 +247,34 @@ def print_losses(mse, mse0, mseb, msep):
     mse0 : List of Initial Condition MSE values or MSE0
     mseb : List of Boundary Conditions MSE values or MSEb
     msep : List of Periodic Boundary Conditions MSE values or MSEp
+    epoch : Integer of current epoch
+    T : Float of the final time T
 
     Returns
     -------
     Plot of losses
-    '''
-    
+    '''    
     fig, ax = plt.subplots()
     ax.plot(mse, label="MSE")
     ax.plot(mse0, label="MSE0")
     ax.plot(mseb, label="MSEb")
     ax.plot(msep, label="MSEp")
     ax.legend(loc='upper right')
-    ax.set_yscale('log')
-    fig.savefig(os.path.join('experiments', 'losses.png'))
+    #ax.set_yscale('log')
+    fig.savefig(os.path.join('experiments', 'losses_T' + '{:.3f}'.format(T) + '_epoch' + str(epoch)+ '.png'))
     plt.close()
     
     
 ###############################################################################
 
-def test_p(model, settings, periodic_func):
+def test_p(model, settings, periodic_func, epoch):
     '''
     Parameters
     ----------
     model : Pytorch neural network object
     settings : Class object containing various settings
     periodic_func : Periodic function used for boundary conditions.
+    epoch : Current training epoch
 
     Returns
     -------
@@ -289,24 +291,27 @@ def test_p(model, settings, periodic_func):
     
     # Compute predicted results
     t_test = torch.from_numpy(np.reshape(t_values, (-1,1))).float().to(device)
-    BC_test = torch.cat([0.5*torch.ones_like(t_test), t_test], axis=-1)
-    BC_test2 = torch.cat([torch.zeros_like(t_test), t_test], axis=-1)
+    BC_test = torch.cat([torch.zeros_like(t_test), t_test], axis=-1)
+    BC_test2 = torch.cat([0.5*settings.xR*torch.ones_like(t_test), t_test], axis=-1)
+    BC_test3 = torch.cat([settings.xR*torch.ones_like(t_test), t_test], axis=-1)
     
     with torch.inference_mode():
-        utest1 = model(BC_test)
+        utest = model(BC_test)
         utest2 = model(BC_test2)
-        utest1 = utest1.cpu().detach().numpy().reshape((-1,))
+        utest3 = model(BC_test3)
+
+        utest = utest.cpu().detach().numpy().reshape((-1,))
         utest2 = utest2.cpu().detach().numpy().reshape((-1,))
+        utest3 = utest3.cpu().detach().numpy().reshape((-1,))
         
         
     fig, ax = plt.subplots()
     ax.plot(t_values, ub, label='Boundary Condition')
-    ax.plot(t_values, utest1, label='Predicted Condition at X = 0.50')
-    ax.plot(t_values, utest2, label='Predicted Condition at X = 0')
+    ax.plot(t_values, utest, label='Predicted Condition at X = 0')
+    ax.plot(t_values, utest2, label='Predicted Condition at X = 0.50')
+    ax.plot(t_values, utest3, label='Predicted Condition at X = 1.0')
     ax.legend(loc='upper right')
-    fig.savefig(os.path.join('experiments', 'periodic.png'))
+    fig.savefig(os.path.join('experiments', 'periodic_T' + '{:.3f}'.format(settings.T) + '_epoch' + str(epoch) + '.png'))
     plt.close()
-    
-
-
+   
     return

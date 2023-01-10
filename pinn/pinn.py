@@ -14,6 +14,13 @@ import torch.nn.functional as F
 
 from utils import training_data, train_network
 
+# Set device
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
+print('Using device: {}'.format(device))
+
 # Set random seeds
 torch.manual_seed(0)
 random.seed(0)
@@ -54,7 +61,7 @@ def main(settings):
     # Initialize optimizer object    
     opt_dict = {'sgd' : optim.SGD(model.parameters(), lr=settings.lr),
                 'adagrad' : optim.Adagrad(model.parameters(), lr=settings.lr),
-                'adam' : optim.Adam(model.parameters(), lr=settings.lr),
+                 'adam' : optim.Adam(model.parameters(), lr=settings.lr),
                 'rmsprop' : optim.RMSprop(model.parameters(), lr=settings.lr)}
     opt = opt_dict[settings.optimizer]
 
@@ -85,7 +92,7 @@ if __name__ == "__main__":
     # Loading initial conditions
     parser.add_argument('--xL', type=float, default=0, help='Float of the left endpoint of the boundary.')
     parser.add_argument('--xR', type=float, default=1.0, help='Float of the right endpoint of the boundary.')
-    parser.add_argument('--T', type=float, default=2*np.pi, help='Float of the end time.')
+    parser.add_argument('--T', type=float, default=2, help='Integer of what to multiply pi by.')
     parser.add_argument('--N0', type=int, default=100, help='Integer of the number of datapoints to use for the initial conditions.')
     parser.add_argument('--Nb', type=int, default=1000, help='Integer of the number of datapoints to use for the boundary conditions.')
     parser.add_argument('--Ni', type=int, default=20000, help='Integer of the number of datapoints to use for the interior points.')
@@ -94,4 +101,6 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     
+    # Set time variable
+    args.T = args.T*np.pi   
     main(args)
