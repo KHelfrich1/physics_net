@@ -47,16 +47,22 @@ def training_data(settings):
     
     # Load periodic function
     init_func = {'sin' : np.sin,
-                 'cos' : np.cos}
+                 'cos' : np.cos,
+                 'sech' : np.cosh}
     base_func = init_func[settings.initial_condition_func]
 
-    periodic_func = lambda x : settings.boundary_scaling*base_func(x)
-        
+    # Handle lack of sech function in numpy
+    if settings.initial_condition_func != 'sech':
+        periodic_func = lambda x : settings.boundary_scaling*base_func(2*np.pi*x)
+    else:       
+        periodic_func = lambda x : (12*settings.initial_scaling**2)*(1.0/base_func(settings.initial_scaling*x)**2)
+
     # Create random initial conditions 
     dx = (settings.xR - settings.xL)/(10*settings.N0)
     x_values = np.arange(settings.xL, settings.xR+dx, dx)
     x_rand = np.random.randint(0, len(x_values), size=(settings.N0))   
-    U0x = np.reshape(x_values[x_rand], (-1,1))
+    U0x = periodic_func(settings.initial_scaling*np.reshape(x_values[x_rand], (-1,1)))**2
+
         
     # Create random boundary conditions
     dt = settings.T/(10*settings.Nb)
@@ -68,16 +74,13 @@ def training_data(settings):
     t_randL = np.random.randint(0, len(t_values), size=(dTL))
     t_randR = np.random.randint(0, len(t_values), size=(dTR))
     
-    tL = np.reshape(t_values[t_randL], (-1,1))
+    UbL = np.reshape(t_values[t_randL], (-1,1))
     tR = np.array_split(t_values[t_randR], 2)   
     
-    Ubu = np.reshape(tR[0], (-1,1))
-    Ubux = np.reshape(tR[-1], (-1,1))
+    UbRu = np.reshape(tR[0], (-1,1))
+    UbRx = np.reshape(tR[-1], (-1,1))
         
-    ub = periodic_func(tL)
-    Ubp = np.concatenate([ub, tL], axis=-1)
-    
-        
+          
     # Gather interior points
     dx = (settings.xR - settings.xL)/(10*settings.Ni)
     x_values = np.arange(settings.xL, settings.xR+dx, dx)
@@ -91,7 +94,7 @@ def training_data(settings):
     
     Ui = np.concatenate([xi, ti], axis=-1) 
          
-    return U0x, Ubp, Ubu, Ubux, Ui, periodic_func
+    return U0x, UbL, UbRu, UbRx, Ui, periodic_func
 
 ###############################################################################
 
@@ -150,7 +153,7 @@ def losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pd
     
 ###############################################################################
 
-def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, periodic_func=None):
+def train_network(model, U0x, UbL, UbRu, UbRx, Ui, opt, epochs, settings=None, periodic_func=None):
     '''
     Parameters
     ----------
@@ -172,23 +175,21 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
 
     # Load model 
     model.to(device)
-    
+        
     # Process initial conditions
     x0 = torch.from_numpy(U0x).float().to(device)    
-
     IC_pts = torch.cat([x0, torch.zeros_like(x0)], axis=-1)
         
     # Process boundary conditions
-    ubp = torch.from_numpy(np.reshape(Ubp[:,0], (-1,1))).float().to(device)    
-    tbp = torch.from_numpy(np.reshape(Ubp[:,-1], (-1,1))).float().to(device)
-    BCp_pts = torch.cat([torch.zeros_like(tbp),tbp], axis=-1)
+    ubL = torch.from_numpy(UbL).float().to(device)    
+    BCL_pts = torch.cat([torch.zeros_like(ubL),ubL], axis=-1)
     
-    tbu = torch.from_numpy(Ubu).float().to(device)
-    BCu_pts = torch.cat([settings.xR*torch.ones_like(tbu), tbu], axis=-1)
+    ubRu = torch.from_numpy(UbRu).float().to(device)
+    BCRu_pts = torch.cat([settings.xR*torch.ones_like(ubRu), ubRu], axis=-1)
         
-    tbux = torch.from_numpy(Ubux).float().to(device)
-    BCux_pts = torch.cat([settings.xR*torch.ones_like(tbux), tbux], axis=-1)
-    BCux_pts.requires_grad = True
+    ubRx = torch.from_numpy(UbRx).float().to(device)
+    BCRx_pts = torch.cat([settings.xR*torch.ones_like(ubRx), ubRx], axis=-1)
+    BCRx_pts.requires_grad = True
 
     # Process interior points
     PDE_pts = torch.from_numpy(Ui).float().to(device)
@@ -204,15 +205,15 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
         u0_hat = model(IC_pts)
         
         # BC Predictions
-        ubp_hat = model(BCp_pts) 
-        ubu_hat = model(BCu_pts)
-        ubux_hat = model(BCux_pts) 
+        ubL_hat = model(BCL_pts) 
+        ubRu_hat = model(BCRu_pts)
+        ubRx_hat = model(BCRx_pts) 
 
         # PDE Predictions    
         pdeu_hat = model(PDE_pts)
    
         # Gather losses
-        mse0, mseb, msep, mse = losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pdeu_hat)
+        mse0, mseb, msep, mse = losses(model, u0_hat, ubL_hat, ubRu_hat, ubRx_hat, pdeu_hat)
         
         mse0_list.append(mse0.cpu().detach().item())
         mseb_list.append(mseb.cpu().detach().item())        
@@ -288,30 +289,85 @@ def test_p(model, settings, periodic_func, epoch):
     
     # Compute periodic conditions
     ub = periodic_func(t_values)
-    
+        
     # Compute predicted results
     t_test = torch.from_numpy(np.reshape(t_values, (-1,1))).float().to(device)
     BC_test = torch.cat([torch.zeros_like(t_test), t_test], axis=-1)
     BC_test2 = torch.cat([0.5*settings.xR*torch.ones_like(t_test), t_test], axis=-1)
-    BC_test3 = torch.cat([settings.xR*torch.ones_like(t_test), t_test], axis=-1)
+    BC_test3 = torch.cat([0.8*settings.xR*torch.ones_like(t_test), t_test], axis=-1)
+    BC_test4 = torch.cat([settings.xR*torch.ones_like(t_test), t_test], axis=-1)
     
     with torch.inference_mode():
         utest = model(BC_test)
         utest2 = model(BC_test2)
         utest3 = model(BC_test3)
+        utest4 = model(BC_test4)
 
         utest = utest.cpu().detach().numpy().reshape((-1,))
         utest2 = utest2.cpu().detach().numpy().reshape((-1,))
         utest3 = utest3.cpu().detach().numpy().reshape((-1,))
-        
+        utest4 = utest4.cpu().detach().numpy().reshape((-1,))
         
     fig, ax = plt.subplots()
     ax.plot(t_values, ub, label='Boundary Condition')
     ax.plot(t_values, utest, label='Predicted Condition at X = 0')
     ax.plot(t_values, utest2, label='Predicted Condition at X = 0.50')
-    ax.plot(t_values, utest3, label='Predicted Condition at X = 1.0')
+    ax.plot(t_values, utest3, label='Predicted Condition at X = 0.80')
+    ax.plot(t_values, utest4, label='Predicted Condition at X = 1.0')
     ax.legend(loc='upper right')
     fig.savefig(os.path.join('experiments', 'periodic_T' + '{:.3f}'.format(settings.T) + '_epoch' + str(epoch) + '.png'))
     plt.close()
+   
+    return
+
+
+
+###############################################################################
+
+def visualize_model(model, settings):
+    '''
+    Parameters
+    ----------
+    model : Pytorch neural network object
+    settings : Class object containing various settings
+    
+    Returns
+    -------
+    3D Plot of PDE solution    
+    '''  
+    
+    # Subsample x-axis and t-axis into 100 by 100 data points
+    dx = (settings.xR - settings.xL)/99
+    x_values = np.reshape(np.arange(settings.xL, settings.xR+dx, dx), (-1,1))    
+    x_matrix = np.repeat(x_values, repeats=100, axis=1)
+    
+    dt = settings.T/99
+    t_values = np.reshape(np.arange(0, settings.T+dt, dt), (1,-1))
+    t_matrix = np.repeat(t_values, repeats=100, axis=0)
+
+    # Evaluate data using network
+    net_data = torch.from_numpy(np.concatenate([x_matrix.reshape((-1,1)), t_matrix.reshape((-1,1))], axis=-1)).float().to(device)
+    with torch.inference_mode():
+        predicted = model(net_data)
+        predicted = predicted.cpu().detach().numpy().reshape([-1,100])
+                
+    # Plot results
+    fig = plt.figure()
+    ax = plt.axes(projection='3d')
+    ax.plot_surface(x_matrix, t_matrix, predicted, 
+                    edgecolor='royalblue', 
+                    lw=0.5, rstride=8, 
+                    cstride=8,
+                    alpha=0.3)
+    ax.set_xlabel('$X$', fontsize=10, rotation=0)
+    ax.set_ylabel('$t$', fontsize=10, rotation=0)
+    ax.set_zlabel('$u(x,t)$', fontsize=10, rotation=0)
+    plt.title('3D Plot with $h(t)=0.1\sin(2\pi t)$')
+    
+    
+    # #ax.legend(loc='upper right')
+    plt.show()
+    # fig.savefig(os.path.join('experiments', 'periodic_T' + '{:.3f}'.format(settings.T) + '_3D.png'))
+    # plt.close()
    
     return

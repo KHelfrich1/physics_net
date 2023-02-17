@@ -56,7 +56,7 @@ class Net(nn.Module):
 def main(settings):
     
     # Gather training data
-    U0x, Ubp, Ubu, Ubux, Ui, periodic_func  = training_data(settings)
+    U0x, UbL, UbRu, UbRx, Ui, periodic_func  = training_data(settings)
 
     # Initialize activation function
     activation_dict = {'relu' : F.relu,
@@ -66,6 +66,7 @@ def main(settings):
 
     # Operations if training a network
     if settings.train:
+                
         # Initialize neural network
         model = Net(settings)
 
@@ -77,7 +78,7 @@ def main(settings):
         opt = opt_dict[settings.optimizer]
 
         # Train Neural Net
-        model = train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, settings.epochs, settings, periodic_func)
+        model = train_network(model, U0x, UbL, UbRu, UbRx, Ui, opt, settings.epochs, settings, periodic_func)
         
         # Saving Neural Net
         if settings.save:
@@ -115,21 +116,21 @@ if __name__ == "__main__":
     parser.add_argument('--optimizer', type=str, default='adam', help='String of optimizer type consisting of [sgd, adam, rmsprop]')
     parser.add_argument('--lr', type=float, default=1e-3, help='Float of the learning rate.')
     parser.add_argument('--epochs', type=int, default=500000, help='Integer of the number of epochs to train the network.')
-    parser.add_argument('--activation', type=str, default='relu', help='String of which type of activation function to use consisting of [relu, leaky_relu, tanh]')
+    parser.add_argument('--activation', type=str, default='tanh', help='String of which type of activation function to use consisting of [relu, leaky_relu, tanh]')
     
     # Loading initial conditions
-    parser.add_argument('--xL', type=float, default=0, help='Float of the left endpoint of the boundary.')
-    parser.add_argument('--xR', type=float, default=1.0, help='Float of the right endpoint of the boundary.')
-    parser.add_argument('--T', type=float, default=2, help='Float of the total time.')
+    parser.add_argument('--xL', type=float, default=-30, help='Float of the left endpoint of the boundary.')
+    parser.add_argument('--xR', type=float, default=30, help='Float of the right endpoint of the boundary.')
+    parser.add_argument('--T', type=float, default=10, help='Float of the total time.')
     parser.add_argument('--N0', type=int, default=100, help='Integer of the number of datapoints to use for the initial conditions.')
     parser.add_argument('--Nb', type=int, default=1000, help='Integer of the number of datapoints to use for the boundary conditions.')
     parser.add_argument('--Ni', type=int, default=20000, help='Integer of the number of datapoints to use for the interior points.')
-    parser.add_argument('--initial_condition_func', type=str, default='sin', help='String of the initial periodic function consisting of [sin, cos]. Actual function is sin(2pi*x), cos(2pi*x), etc.')
-    parser.add_argument('--boundary_scaling', type=float, default=0.10, help='Float of the scaling to apply to the periodic boundary condition function.')
+    parser.add_argument('--initial_condition_func', type=str, default='sech', help='String of the initial periodic function consisting of [sin, cos]. Actual function is sin(2pi*x), cos(2pi*x), etc.')
+    parser.add_argument('--initial_scaling', type=float, default=0.3, help='Float of the scaling to apply to the periodic initial condition function.')
 
     # Loading user defined operations
-    parser.add_argument('--train', type=strtobool, default=0, help='String of whether to train the network or not.')
-    parser.add_argument('--save', type=strtobool, default=0, help='String of whether to save the network or not.')
+    parser.add_argument('--train', type=strtobool, default=1, help='String of whether to train the network or not.')
+    parser.add_argument('--save', type=strtobool, default=1, help='String of whether to save the network or not.')
     parser.add_argument('--visualize', type=strtobool, default=1, help='String of whether to render 3D surface of solution.')
 
     args = parser.parse_args()
@@ -149,6 +150,6 @@ if __name__ == "__main__":
         if not os.path.exists('./models'):
             print('"models" folder does not exist. Creating folder...')
             os.makedirs('./models/')
-    args.save_name = os.path.join('models', 'scaling_{:.2f}_T_{:1f}.pt'.format(args.boundary_scaling, args.T))
+    args.save_name = os.path.join('models', 'scaling_{:.2f}_T_{:1f}.pt'.format(args.initial_scaling, args.T))
     
     main(args)
