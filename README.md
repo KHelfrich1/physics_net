@@ -12,50 +12,16 @@ KdV Net is a nueral network that has been designed to solve the KdV equation wit
 Currently, this repo has three different branches. You can acess each branch in the upper left drop down.
 
 * **main** - this is where the final project will be located. Right now it is up to date but most likely will not be.
-* ****
+* **pinn** - this is the code from the paper XXXX. It is designed to use TensorFlow instead of PyTorch
+* **physics_net** - this is the current working branch and will be the most up to date.
 
-* Add Size Limit to **Travis CI**, **Circle CI**, **GitHub Actions**
-  or another CI system to know if a pull request adds a massive dependency.
-* **Modular** to fit different use cases: big JS applications
-  that use their own bundler or small npm libraries with many files.
-* Can calculate **the time** it would take a browser
-  to download and **execute** your JS. Time is a much more accurate
-  and understandable metric compared to the size in bytes.
-* Calculations include **all dependencies and polyfills**
-  used in your JS.
+**Note:** If you are wanting to make changes, please create another branch and work on that branch to avoid overwritting work by others.
 
-<p align="center">
-  <img src="./img/example.png" alt="Size Limit CLI" width="738">
-</p>
+# Scripts
 
-With **[GitHub action]** Size Limit will post bundle size changes as a comment
-in pull request discussion.
+The repo contains the following files:
 
-<p align="center">
-<img src="https://raw.githubusercontent.com/andresz1/size-limit-action/master/assets/pr.png"
-  alt="Size Limit comment in pull request about bundle size changes"
-  width="686" height="289">
-</p>
-
-With `--why`, Size Limit can tell you *why* your library is of this size
-and show the real cost of all your internal dependencies.
-We are using [Statoscope] for this analysis.
-
-<p align="center">
-  <img src="./img/why.png" alt="Statoscope example" width="650">
-</p>
-
-<p align="center">
-  <a href="https://evilmartians.com/?utm_source=size-limit">
-    <img src="https://evilmartians.com/badges/sponsored-by-evil-martians.svg"
-         alt="Sponsored by Evil Martians" width="236" height="54">
-  </a>
-</p>
-
-[GitHub action]: https://github.com/andresz1/size-limit-action
-[Statoscope]:    https://github.com/statoscope/statoscope
-[cult-img]:      http://cultofmartians.com/assets/badges/badge.svg
-[cult]:          http://cultofmartians.com/tasks/size-limit-config.html
+* ``
 
 ## Who Uses Size Limit
 
