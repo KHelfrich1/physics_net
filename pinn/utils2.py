@@ -61,8 +61,9 @@ def training_data(settings):
     dx = (settings.xR - settings.xL)/(10*settings.N0)
     x_values = np.arange(settings.xL, settings.xR+dx, dx)
     x_rand = np.random.randint(0, len(x_values), size=(settings.N0))   
-    U0x = np.reshape(x_values[x_rand], (-1,1))
-    
+    U0x = periodic_func(settings.initial_scaling*np.reshape(x_values[x_rand], (-1,1)))**2
+
+        
     # Create random boundary conditions
     dt = settings.T/(10*settings.Nb)
     t_values = np.arange(0, settings.T+dt, dt)
@@ -73,14 +74,12 @@ def training_data(settings):
     t_randL = np.random.randint(0, len(t_values), size=(dTL))
     t_randR = np.random.randint(0, len(t_values), size=(dTR))
     
--   tL = np.reshape(t_values[t_randL], (-1,1))
+    UbL = np.reshape(t_values[t_randL], (-1,1))
     tR = np.array_split(t_values[t_randR], 2)   
     
-    Ubu = np.reshape(tR[0], (-1,1))
-    Ubux = np.reshape(tR[-1], (-1,1))
-
-    ub = periodic_func(tL)
-    Ubp = np.concatenate([ub, tL], axis=-1)
+    UbRu = np.reshape(tR[0], (-1,1))
+    UbRx = np.reshape(tR[-1], (-1,1))
+        
           
     # Gather interior points
     dx = (settings.xR - settings.xL)/(10*settings.Ni)
@@ -95,7 +94,7 @@ def training_data(settings):
     
     Ui = np.concatenate([xi, ti], axis=-1) 
          
-    return U0x, Ubp, Ubu, Ubux, Ui, periodic_func
+    return U0x, UbL, UbRu, UbRx, Ui, periodic_func
 
 ###############################################################################
 
@@ -154,7 +153,7 @@ def losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pd
     
 ###############################################################################
 
-def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, periodic_func=None):
+def train_network(model, U0x, UbL, UbRu, UbRx, Ui, opt, epochs, settings=None, periodic_func=None):
     '''
     Parameters
     ----------
@@ -182,16 +181,15 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
     IC_pts = torch.cat([x0, torch.zeros_like(x0)], axis=-1)
         
     # Process boundary conditions
-    ubp = torch.from_numpy(np.reshape(Ubp[:,0], (-1,1))).float().to(device)
-    tbp = torch.from_numpy(np.reshape(Ubp[:,-1], (-1,1))).float().to(device)
-    BCp_pts = torch.cat([torch.zeros_like(tbp),tbp], axis=-1)
+    ubL = torch.from_numpy(UbL).float().to(device)    
+    BCL_pts = torch.cat([torch.zeros_like(ubL),ubL], axis=-1)
     
-    tbu = torch.from_numpy(Ubu).float().to(device)
-    BCu_pts = torch.cat([settings.xR*torch.ones_like(tbu), tbu], axis=-1)
-    
-    tbux = torch.from_numpy(Ubux).float().to(device)
-    BCux_pts = torch.cat([settings.xR*torch.ones_like(tbux), tbux], axis=-1)
-    BCux_pts.requires_grad = True
+    ubRu = torch.from_numpy(UbRu).float().to(device)
+    BCRu_pts = torch.cat([settings.xR*torch.ones_like(ubRu), ubRu], axis=-1)
+        
+    ubRx = torch.from_numpy(UbRx).float().to(device)
+    BCRx_pts = torch.cat([settings.xR*torch.ones_like(ubRx), ubRx], axis=-1)
+    BCRx_pts.requires_grad = True
 
     # Process interior points
     PDE_pts = torch.from_numpy(Ui).float().to(device)
@@ -207,15 +205,16 @@ def train_network(model, U0x, Ubp, Ubu, Ubux, Ui, opt, epochs, settings=None, pe
         u0_hat = model(IC_pts)
         
         # BC Predictions
-        ubp_hat = model(BCp_pts)
-        ubu_hat = model(BCu_pts)
-        ubux_hat = model(BCux_pts)
+        ubL_hat = model(BCL_pts) 
+        ubRu_hat = model(BCRu_pts)
+        ubRx_hat = model(BCRx_pts) 
 
         # PDE Predictions    
         pdeu_hat = model(PDE_pts)
    
         # Gather losses
-        mse0, mseb, msep, mse = losses(model, u0_hat, ubp, ubp_hat, ubu_hat, BCux_pts, ubux_hat, PDE_pts, pdeu_hat)  
+        mse0, mseb, msep, mse = losses(model, u0_hat, ubL_hat, ubRu_hat, ubRx_hat, pdeu_hat)
+        
         mse0_list.append(mse0.cpu().detach().item())
         mseb_list.append(mseb.cpu().detach().item())        
         msep_list.append(msep.cpu().detach().item())
