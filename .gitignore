@@ -6,7 +6,7 @@ __pycache__/
 # Experiment folder
 pinn/experiments/*
 pinn/outputlog.txt
-
+pinn/models/*
 
 # C extensions
 *.so

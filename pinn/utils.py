@@ -73,7 +73,7 @@ def training_data(settings):
     t_randL = np.random.randint(0, len(t_values), size=(dTL))
     t_randR = np.random.randint(0, len(t_values), size=(dTR))
     
--   tL = np.reshape(t_values[t_randL], (-1,1))
+    tL = np.reshape(t_values[t_randL], (-1,1))
     tR = np.array_split(t_values[t_randR], 2)   
     
     Ubu = np.reshape(tR[0], (-1,1))
