@@ -115,7 +115,7 @@ if __name__ == "__main__":
     parser.add_argument('--optimizer', type=str, default='adam', help='String of optimizer type consisting of [sgd, adam, rmsprop]')
     parser.add_argument('--lr', type=float, default=1e-3, help='Float of the learning rate.')
     parser.add_argument('--epochs', type=int, default=500000, help='Integer of the number of epochs to train the network.')
-    parser.add_argument('--activation', type=str, default='relu', help='String of which type of activation function to use consisting of [relu, leaky_relu, tanh]')
+    parser.add_argument('--activation', type=str, default='tanh', help='String of which type of activation function to use consisting of [relu, leaky_relu, tanh]')
     
     # Loading initial conditions
     parser.add_argument('--xL', type=float, default=0, help='Float of the left endpoint of the boundary.')
